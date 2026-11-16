@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Authenticator Sync</title>
+    <link rel="stylesheet" href="/src/styles.css" />
+  </head>
+  <body>
+    <header class="site-header">
+      <h1>Authenticator Sync</h1>
+      <p class="lede">
+        Compare and merge Google Authenticator and Chrome Authenticator extension accounts.
+        Everything runs locally in this tab — nothing is uploaded or saved. Reloading the page clears it.
+      </p>
+    </header>
+
+    <main>
+      <section aria-labelledby="inputs-title">
+        <h2 id="inputs-title">1. Load your accounts</h2>
+        <p class="hint">Load at least one source. Load both to see duplicates and what each one is missing.</p>
+        <div class="cards">
+          <article class="card" id="source-ga" data-source="ga">
+            <h3>Google Authenticator</h3>
+            <p class="hint">
+              In the app: <em>Transfer accounts → Export accounts</em>. Screenshot every QR code it shows
+              (there can be several), then drop the screenshots here — or scan them with your webcam.
+            </p>
+            <div class="dropzone" tabindex="-1">
+              <label class="button">
+                Choose QR images…
+                <input type="file" accept="image/*" multiple class="visually-hidden" data-role="images" />
+              </label>
+              <button type="button" data-role="webcam">Scan with webcam</button>
+              <span class="hint">or drop images here</span>
+            </div>
+            <details>
+              <summary>Paste <code>otpauth-migration://</code> links instead</summary>
+              <textarea rows="3" data-role="paste" spellcheck="false" autocomplete="off" placeholder="otpauth-migration://offline?data=…"></textarea>
+              <button type="button" data-role="load-paste">Load pasted links</button>
+            </details>
+            <div data-role="status"></div>
+          </article>
+
+          <article class="card" id="source-ext" data-source="ext">
+            <h3>Chrome Authenticator extension</h3>
+            <p class="hint">
+              In the extension: <em>Settings → Backup → Download backup file</em> (plain text, one
+              <code>otpauth://</code> link per line). Single-account QR images also work.
+            </p>
+            <div class="dropzone" tabindex="-1">
+              <label class="button">
+                Choose backup file or QR images…
+                <input type="file" accept=".txt,text/plain,image/*" multiple class="visually-hidden" data-role="images" />
+              </label>
+              <button type="button" data-role="webcam">Scan with webcam</button>
+              <span class="hint">or drop files here</span>
+            </div>
+            <details>
+              <summary>Paste the text instead</summary>
+              <textarea rows="4" data-role="paste" spellcheck="false" autocomplete="off" placeholder="otpauth://totp/Issuer:account?secret=…&amp;issuer=Issuer"></textarea>
+              <button type="button" data-role="load-paste">Load pasted text</button>
+            </details>
+            <div data-role="status"></div>
+          </article>
+        </div>
+      </section>
+
+      <section aria-labelledby="accounts-title">
+        <h2 id="accounts-title">2. Review &amp; edit</h2>
+        <div id="accounts"></div>
+      </section>
+
+      <section aria-labelledby="export-title">
+        <h2 id="export-title">3. Export</h2>
+        <div id="export"></div>
+      </section>
+    </main>
+
+    <dialog id="scanner" aria-labelledby="scanner-title">
+      <h2 id="scanner-title">Scan QR codes</h2>
+      <p class="hint" data-role="scanner-hint"></p>
+      <video playsinline muted></video>
+      <ul data-role="scanner-log" class="scanner-log" aria-live="polite"></ul>
+      <form method="dialog"><button>Done</button></form>
+    </dialog>
+
+    <dialog id="viewer" closedby="any" aria-labelledby="viewer-title">
+      <h2 id="viewer-title"></h2>
+      <img alt="" data-role="viewer-img" />
+      <p class="hint" data-role="viewer-detail"></p>
+      <div class="viewer-nav">
+        <button type="button" data-role="prev">← Previous</button>
+        <span data-role="viewer-count"></span>
+        <button type="button" data-role="next">Next →</button>
+      </div>
+      <form method="dialog"><button>Close</button></form>
+    </dialog>
+
+    <div id="toast" role="status" aria-live="polite" hidden></div>
+
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

@@ -1,0 +1,105 @@
+import { base32Decode, base32Encode } from './encoding';
+import type { Algorithm, OtpEntry, OtpType } from './types';
+
+const ALGORITHMS: Algorithm[] = ['SHA1', 'SHA256', 'SHA512', 'MD5'];
+
+function safeDecode(s: string): string {
+  try {
+    return decodeURIComponent(s);
+  } catch {
+    return s;
+  }
+}
+
+function parseQuery(q: string): Map<string, string> {
+  const params = new Map<string, string>();
+  for (const part of q.split('&')) {
+    if (!part) continue;
+    const eq = part.indexOf('=');
+    const key = (eq < 0 ? part : part.slice(0, eq)).toLowerCase();
+    const value = eq < 0 ? '' : safeDecode(part.slice(eq + 1));
+    if (!params.has(key)) params.set(key, value);
+  }
+  return params;
+}
+
+/** Split "Issuer:account" labels. Returns the issuer prefix (possibly empty) and the account name. */
+export function splitLabel(label: string): { prefix: string; name: string } {
+  const idx = label.indexOf(':');
+  if (idx < 0) return { prefix: '', name: label.trim() };
+  return { prefix: label.slice(0, idx).trim(), name: label.slice(idx + 1).trim() };
+}
+
+/** Parse a single `otpauth://totp/...` or `otpauth://hotp/...` URI. */
+export function parseOtpauthUri(uri: string): OtpEntry {
+  const m = /^otpauth:\/\/(totp|hotp)\/([^?]*)(?:\?(.*))?$/i.exec(uri.trim());
+  if (!m) throw new Error('Not an otpauth:// URI');
+  const type = m[1].toLowerCase() as OtpType;
+  const { prefix, name } = splitLabel(safeDecode(m[2]));
+  const params = parseQuery(m[3] ?? '');
+
+  const secretStr = params.get('secret');
+  if (!secretStr) throw new Error('Missing secret');
+  const secret = base32Decode(secretStr);
+  if (secret.length === 0) throw new Error('Empty secret');
+
+  const algorithm = (params.get('algorithm') ?? 'SHA1').toUpperCase().replace('-', '') as Algorithm;
+  if (!ALGORITHMS.includes(algorithm)) throw new Error(`Unsupported algorithm "${algorithm}"`);
+
+  const digits = params.has('digits') ? Number(params.get('digits')) : 6;
+  const period = params.has('period') ? Number(params.get('period')) : 30;
+  const counter = params.has('counter') ? Number(params.get('counter')) : 0;
+  if (!Number.isInteger(digits) || digits < 1 || digits > 10) throw new Error('Invalid digits');
+  if (!Number.isInteger(period) || period < 1) throw new Error('Invalid period');
+  if (!Number.isInteger(counter) || counter < 0) throw new Error('Invalid counter');
+
+  return {
+    secret,
+    issuer: params.get('issuer')?.trim() || prefix,
+    name,
+    algorithm,
+    digits,
+    period,
+    type,
+    counter,
+  };
+}
+
+/** Build an `otpauth://` URI in the same shape the Chrome Authenticator extension exports. */
+export function toOtpauthUri(e: OtpEntry): string {
+  const enc = encodeURIComponent;
+  const label = e.issuer ? `${enc(e.issuer)}:${enc(e.name)}` : enc(e.name);
+  const params = [`secret=${base32Encode(e.secret)}`];
+  if (e.issuer) params.push(`issuer=${enc(e.issuer)}`);
+  if (e.algorithm !== 'SHA1') params.push(`algorithm=${e.algorithm}`);
+  if (e.digits !== 6) params.push(`digits=${e.digits}`);
+  if (e.type === 'totp' && e.period !== 30) params.push(`period=${e.period}`);
+  if (e.type === 'hotp') params.push(`counter=${e.counter}`);
+  return `otpauth://${e.type}/${label}?${params.join('&')}`;
+}
+
+export interface ParsedLine {
+  line: number;
+  entry?: OtpEntry;
+  error?: string;
+  raw: string;
+}
+
+/** Parse a text backup: one otpauth:// URI per line. Blank lines are skipped. */
+export function parseOtpauthText(text: string): ParsedLine[] {
+  const results: ParsedLine[] = [];
+  text.split(/\r?\n/).forEach((raw, i) => {
+    const trimmed = raw.trim();
+    if (!trimmed) return;
+    try {
+      results.push({ line: i + 1, raw: trimmed, entry: parseOtpauthUri(trimmed) });
+    } catch (err) {
+      results.push({ line: i + 1, raw: trimmed, error: (err as Error).message });
+    }
+  });
+  return results;
+}
+
+export function toOtpauthText(entries: OtpEntry[]): string {
+  return entries.map(toOtpauthUri).join('\n') + (entries.length ? '\n' : '');
+}
