@@ -48,19 +48,24 @@ export class ProtoReader {
     return new TextDecoder().decode(this.bytes());
   }
 
+  private advance(n: number): void {
+    if (this.pos + n > this.buf.length) throw new Error('Truncated protobuf field');
+    this.pos += n;
+  }
+
   skip(wire: number): void {
     switch (wire) {
       case WIRE_VARINT:
         this.varint();
         return;
       case WIRE_FIXED64:
-        this.pos += 8;
+        this.advance(8);
         return;
       case WIRE_LEN:
         this.bytes();
         return;
       case WIRE_FIXED32:
-        this.pos += 4;
+        this.advance(4);
         return;
       default:
         throw new Error(`Unsupported protobuf wire type ${wire}`);

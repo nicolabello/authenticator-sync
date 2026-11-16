@@ -1,5 +1,5 @@
 import { isMigrationUri, parseMigrationUri } from './migration';
-import { parseOtpauthUri } from './otpauth';
+import { accountLabel, parseOtpauthUri } from './otpauth';
 import { accountKey, type Store } from './store';
 import type { OtpEntry, SourceKind } from './types';
 
@@ -7,10 +7,6 @@ export interface IngestResult {
   accounts: number;
   batches: number;
   errors: string[];
-}
-
-function labelOf(e: OtpEntry): string {
-  return e.issuer ? `${e.issuer}: ${e.name}` : e.name;
 }
 
 /** Add one Google Authenticator transfer QR payload. Re-scanning the same batch replaces it. */
@@ -21,6 +17,7 @@ export function ingestMigration(store: Store, uri: string): IngestResult {
     source: 'ga',
     label: `Transfer QR ${batch.batchIndex + 1} of ${batch.batchSize}`,
     entries: batch.entries,
+    batch: { id: batch.batchId, index: batch.batchIndex, size: batch.batchSize },
   });
   return { accounts: batch.entries.length, batches: 1, errors: [] };
 }
@@ -32,7 +29,7 @@ export function ingestMigration(store: Store, uri: string): IngestResult {
 export function ingestQrText(store: Store, text: string, source: SourceKind): IngestResult {
   if (isMigrationUri(text)) return ingestMigration(store, text);
   const entry = parseOtpauthUri(text);
-  store.upsertItem({ id: `${source}:qr:${accountKey(entry)}`, source, label: `QR: ${labelOf(entry)}`, entries: [entry] });
+  store.upsertItem({ id: `${source}:qr:${accountKey(entry)}`, source, label: `QR: ${accountLabel(entry)}`, entries: [entry] });
   return { accounts: 1, batches: 0, errors: [] };
 }
 
@@ -58,7 +55,7 @@ export function ingestTextBlock(store: Store, text: string, source: SourceKind, 
       result.errors.push(`Line ${i + 1}: ${(err as Error).message}`);
     }
   });
-  if (entries.length || result.batches === 0) {
+  if (entries.length) {
     store.upsertItem({ id, source, label, entries });
     result.accounts += entries.length;
   }

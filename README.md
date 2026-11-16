@@ -16,7 +16,8 @@ npm run build && npm run preview
 1. **Load** one or both sources.
    - **Google Authenticator:** Transfer accounts → Export accounts. Screenshot every QR code and drop the images in, or scan them with the webcam. You can also paste `otpauth-migration://` links.
    - **Chrome extension:** the plain-text backup (one `otpauth://` link per line), or single-account QR images.
-   - Loading the same file or QR twice replaces it rather than duplicating it.
+   - Loading the same file or QR twice replaces it rather than duplicating it. Loading a second export of the same app isn't counted as duplicates either; only copies inside a single export are.
+   - Steam accounts (`encoder=steam`) aren't standard TOTP and are skipped with a message.
 2. **Review.** Accounts are merged by secret, so the same secret means the same account, whatever the label says. The app flags:
    - duplicates within a source
    - different labels for the same secret

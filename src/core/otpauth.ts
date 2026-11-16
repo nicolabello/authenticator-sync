@@ -11,13 +11,19 @@ function safeDecode(s: string): string {
   }
 }
 
+/** Display label, e.g. "Google: me@example.com". */
+export function accountLabel(e: Pick<OtpEntry, 'issuer' | 'name'>): string {
+  return e.issuer ? `${e.issuer}: ${e.name}` : e.name;
+}
+
 function parseQuery(q: string): Map<string, string> {
   const params = new Map<string, string>();
   for (const part of q.split('&')) {
     if (!part) continue;
     const eq = part.indexOf('=');
     const key = (eq < 0 ? part : part.slice(0, eq)).toLowerCase();
-    const value = eq < 0 ? '' : safeDecode(part.slice(eq + 1));
+    // Form-style "+" means space (e.g. issuer=My+Bank); base32 secrets never contain "+".
+    const value = eq < 0 ? '' : safeDecode(part.slice(eq + 1).replace(/\+/g, ' '));
     if (!params.has(key)) params.set(key, value);
   }
   return params;
@@ -37,6 +43,9 @@ export function parseOtpauthUri(uri: string): OtpEntry {
   const type = m[1].toLowerCase() as OtpType;
   const { prefix, name } = splitLabel(safeDecode(m[2]));
   const params = parseQuery(m[3] ?? '');
+  // authenticator.cc marks Steam Guard accounts this way; their codes aren't standard TOTP.
+  const encoder = params.get('encoder');
+  if (encoder) throw new Error(`Unsupported account type "${encoder}" (e.g. Steam) — not standard TOTP`);
 
   const secretStr = params.get('secret');
   if (!secretStr) throw new Error('Missing secret');
@@ -76,28 +85,6 @@ export function toOtpauthUri(e: OtpEntry): string {
   if (e.type === 'totp' && e.period !== 30) params.push(`period=${e.period}`);
   if (e.type === 'hotp') params.push(`counter=${e.counter}`);
   return `otpauth://${e.type}/${label}?${params.join('&')}`;
-}
-
-export interface ParsedLine {
-  line: number;
-  entry?: OtpEntry;
-  error?: string;
-  raw: string;
-}
-
-/** Parse a text backup: one otpauth:// URI per line. Blank lines are skipped. */
-export function parseOtpauthText(text: string): ParsedLine[] {
-  const results: ParsedLine[] = [];
-  text.split(/\r?\n/).forEach((raw, i) => {
-    const trimmed = raw.trim();
-    if (!trimmed) return;
-    try {
-      results.push({ line: i + 1, raw: trimmed, entry: parseOtpauthUri(trimmed) });
-    } catch (err) {
-      results.push({ line: i + 1, raw: trimmed, error: (err as Error).message });
-    }
-  });
-  return results;
 }
 
 export function toOtpauthText(entries: OtpEntry[]): string {

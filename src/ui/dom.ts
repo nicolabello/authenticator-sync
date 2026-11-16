@@ -13,8 +13,10 @@ export function h<K extends keyof HTMLElementTagNameMap>(
 ): HTMLElementTagNameMap[K] {
   const el = document.createElement(tag);
   for (const [k, v] of Object.entries(props)) {
-    if (v === undefined || v === null || v === false) continue;
-    if (k === 'class') el.className = String(v);
+    // spellcheck="false" must be an attribute (the property would coerce "false" to true).
+    if (k === 'spellcheck') el.setAttribute(k, String(v));
+    else if (v === undefined || v === null || v === false) continue;
+    else if (k === 'class') el.className = String(v);
     else if (k.startsWith('on') && typeof v === 'function') el.addEventListener(k.slice(2), v as EventListener);
     else if (k in el && !k.includes('-')) (el as unknown as Props)[k] = v;
     else el.setAttribute(k, v === true ? '' : String(v));

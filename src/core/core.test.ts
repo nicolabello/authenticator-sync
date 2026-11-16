@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { base32Decode, base32Encode, base64Decode } from './encoding';
 import { decodeMigrationPayload, parseMigrationUri, toMigrationUris } from './migration';
-import { parseOtpauthText, parseOtpauthUri, toOtpauthUri } from './otpauth';
+import { ingestTextBlock } from './ingest';
+import { parseOtpauthUri, toOtpauthUri } from './otpauth';
 import { ProtoWriter } from './protobuf';
 import { Store, selectForScope } from './store';
 import { generateCode } from './totp';
@@ -14,6 +15,8 @@ const SAMPLE = [
   'otpauth://totp/NoIssuerParam:carol?secret=GEZDGNBVGY3TQOJQ',
   'otpauth://totp/Fast:dave?secret=MFRGGZDFMZTWQ2LK&issuer=Fast&period=60&digits=8&algorithm=SHA256',
 ].join('\n');
+
+const parseLines = (text: string) => text.split('\n').filter(Boolean).map(parseOtpauthUri);
 
 describe('base32', () => {
   it('round-trips and is lenient on case/spacing/padding', () => {
@@ -33,14 +36,25 @@ describe('base32', () => {
 
 describe('otpauth text', () => {
   it('parses the extension format', () => {
-    const lines = parseOtpauthText(SAMPLE + '\n\nnot a uri\n');
-    expect(lines).toHaveLength(5);
-    expect(lines[4].error).toBeDefined();
-    const [a, b, c, d] = lines.map((l) => l.entry!);
+    const [a, b, c, d] = parseLines(SAMPLE);
     expect(a).toMatchObject({ issuer: 'ExampleCo', name: 'alice@example.com', digits: 6, period: 30, algorithm: 'SHA1' });
     expect(base32Encode(b.secret)).toBe('KVKFKRCPNZQUEQCBGJZHEQRSGM');
     expect(c).toMatchObject({ issuer: 'NoIssuerParam', name: 'carol' });
     expect(d).toMatchObject({ period: 60, digits: 8, algorithm: 'SHA256' });
+  });
+  it('reads "+" in the issuer as a space', () => {
+    expect(parseOtpauthUri('otpauth://totp/x?secret=JBSWY3DPEHPK3PXP&issuer=My+Bank').issuer).toBe('My Bank');
+  });
+  it('rejects Steam accounts', () => {
+    expect(() => parseOtpauthUri('otpauth://totp/Steam:me?secret=JBSWY3DPEHPK3PXP&issuer=Steam&encoder=steam')).toThrow(/Steam/);
+  });
+  it('loads a text block, skipping bad lines and creating no empty items', () => {
+    const s = new Store();
+    const r = ingestTextBlock(s, SAMPLE + '\n\nnot a uri\n', 'ext', 'f', 'file');
+    expect(r.accounts).toBe(4);
+    expect(r.errors).toEqual(['Line 6: Not an otpauth:// URI']);
+    expect(ingestTextBlock(s, 'garbage', 'ext', 'g', 'bad').accounts).toBe(0);
+    expect(s.getItems()).toHaveLength(1);
   });
   it('serializes back to the same shape', () => {
     const uri = SAMPLE.split('\n')[0];
@@ -51,15 +65,15 @@ describe('otpauth text', () => {
 });
 
 describe('Google Authenticator migration', () => {
-  const entries = parseOtpauthText(SAMPLE).map((l) => l.entry!);
+  const entries = parseLines(SAMPLE);
 
   it('round-trips through otpauth-migration URIs in batches', () => {
     const uris = toMigrationUris(entries, 3, 42);
     expect(uris).toHaveLength(2);
     const batches = uris.map(parseMigrationUri);
-    expect(batches.map((b) => [b.batchIndex, b.batchSize, b.batchId, b.version])).toEqual([
-      [0, 2, 42, 1],
-      [1, 2, 42, 1],
+    expect(batches.map((b) => [b.batchIndex, b.batchSize, b.batchId])).toEqual([
+      [0, 2, 42],
+      [1, 2, 42],
     ]);
     const decoded = batches.flatMap((b) => b.entries);
     // Period is not carried by the format, everything else is.
@@ -112,7 +126,7 @@ describe('TOTP', () => {
 });
 
 describe('Store', () => {
-  const ext = parseOtpauthText(SAMPLE).map((l) => l.entry!);
+  const ext = parseLines(SAMPLE);
   // GA has alice (relabelled), carol twice, and an extra account.
   const extra = parseOtpauthUri('otpauth://totp/Extra:erin?secret=ONSWG4TFOQ&issuer=Extra');
   const gaEntries = [{ ...ext[0], name: 'Alice' }, ext[2], ext[2], extra];
@@ -130,9 +144,9 @@ describe('Store', () => {
     const alice = accounts.find((a) => a.entry.issuer === 'ExampleCo')!;
     expect(alice.occurrences.ga).toHaveLength(1);
     expect(alice.occurrences.ext).toHaveLength(1);
-    expect(alice.warnings.join()).toMatch(/Labelled differently/);
+    expect(alice.warnings.join()).toMatch(/Named differently/);
     const carol = accounts.find((a) => a.entry.name === 'carol')!;
-    expect(carol.warnings.join()).toMatch(/2× in the Google Authenticator/);
+    expect(carol.warnings.join()).toMatch(/2 copies in Google Authenticator/);
   });
 
   it('is idempotent when the same item is loaded twice', () => {
@@ -165,6 +179,43 @@ describe('Store', () => {
     const b = parseOtpauthUri('otpauth://totp/X:me?secret=MFRGGZDFMZTWQ2LK&issuer=X');
     s.upsertItem({ id: 'a', source: 'ga', label: '', entries: [a] });
     s.upsertItem({ id: 'b', source: 'ext', label: '', entries: [b] });
-    expect(s.accounts().every((acc) => acc.warnings.some((w) => /probably stale/.test(w)))).toBe(true);
+    expect(s.accounts().every((acc) => acc.warnings.some((w) => /probably one is outdated/.test(w)))).toBe(true);
+  });
+
+  it('does not treat a second GA export of the same account as a duplicate', () => {
+    const s = new Store();
+    const [first] = toMigrationUris([ext[0]], 10, 1);
+    const [second] = toMigrationUris([ext[0]], 10, 2);
+    ingestTextBlock(s, `${first}\n${second}`, 'ga', 'x', 'x');
+    const [acc] = s.accounts();
+    expect(acc.copies.ga).toBe(1);
+    expect(acc.warnings).toEqual([]);
+  });
+
+  it('reports transfer QRs that have not been loaded', () => {
+    const s = new Store();
+    const uris = toMigrationUris(ext, 1, 7);
+    ingestTextBlock(s, [uris[0], uris[2]].join('\n'), 'ga', 'x', 'x');
+    expect(s.missingGaBatches()).toEqual(['2 of 4', '4 of 4']);
+  });
+
+  it('clears the "same name" warning once the stale entry is unticked', () => {
+    const s = new Store();
+    const a = parseOtpauthUri('otpauth://totp/X:me?secret=JBSWY3DPEHPK3PXP&issuer=X');
+    const b = parseOtpauthUri('otpauth://totp/X:me?secret=MFRGGZDFMZTWQ2LK&issuer=X');
+    s.upsertItem({ id: 'a', source: 'ga', label: '', entries: [a, b] });
+    s.setOverride(s.accounts()[1].key, { excluded: true });
+    expect(s.accounts()[0].warnings).toEqual([]);
+  });
+});
+
+describe('robustness', () => {
+  it('rejects transfer QR accounts without a secret', () => {
+    const p = new ProtoWriter().message(1, new ProtoWriter().string(2, 'nosecret')).finish();
+    expect(() => decodeMigrationPayload(p)).toThrow(/without a secret/);
+  });
+  it('rejects truncated protobuf fixed-width fields', () => {
+    // field 9, wire type 1 (fixed64), then only 2 bytes.
+    expect(() => decodeMigrationPayload(new Uint8Array([(9 << 3) | 1, 0, 0]))).toThrow(/Truncated/);
   });
 });

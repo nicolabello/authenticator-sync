@@ -74,6 +74,7 @@ export class WebcamScanner {
   private raf = 0;
   private lastScan = 0;
   private busy = false;
+  private stopped = false;
 
   constructor(
     private readonly video: HTMLVideoElement,
@@ -81,12 +82,19 @@ export class WebcamScanner {
   ) {}
 
   async start(): Promise<void> {
-    this.stream = await navigator.mediaDevices.getUserMedia({
+    const stream = await navigator.mediaDevices.getUserMedia({
       video: { facingMode: 'environment', width: { ideal: 1920 }, height: { ideal: 1080 } },
       audio: false,
     });
-    this.video.srcObject = this.stream;
+    // Closed while the permission prompt was up: release the camera immediately.
+    if (this.stopped) {
+      stream.getTracks().forEach((t) => t.stop());
+      return;
+    }
+    this.stream = stream;
+    this.video.srcObject = stream;
     await this.video.play();
+    if (this.stopped) return;
     const tick = (t: number) => {
       this.raf = requestAnimationFrame(tick);
       if (this.busy || t - this.lastScan < 150) return;
@@ -116,9 +124,11 @@ export class WebcamScanner {
 
   stop(): void {
     cancelAnimationFrame(this.raf);
+    this.stopped = true;
     this.stream?.getTracks().forEach((t) => t.stop());
+    // The <video> is shared between scans; only detach our own stream.
+    if (this.video.srcObject === this.stream) this.video.srcObject = null;
     this.stream = undefined;
-    this.video.srcObject = null;
   }
 }
 

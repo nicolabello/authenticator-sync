@@ -1,6 +1,24 @@
+import { toHex } from './encoding';
 import type { OtpEntry } from './types';
 
 const SUBTLE_HASH = { SHA1: 'SHA-1', SHA256: 'SHA-256', SHA512: 'SHA-512' } as const;
+
+// Importing a key every second for every account is wasteful; keys are non-extractable.
+const keyCache = new Map<string, Promise<CryptoKey>>();
+
+function hmacKey(secret: Uint8Array, hash: string): Promise<CryptoKey> {
+  const id = `${hash}:${toHex(secret)}`;
+  let key = keyCache.get(id);
+  if (!key) {
+    key = crypto.subtle.importKey('raw', new Uint8Array(secret), { name: 'HMAC', hash }, false, ['sign']);
+    keyCache.set(id, key);
+  }
+  return key;
+}
+
+export function clearKeyCache(): void {
+  keyCache.clear();
+}
 
 /** Seconds left in the current TOTP step. */
 export function secondsRemaining(period: number, now = Date.now()): number {
@@ -16,13 +34,7 @@ export async function generateCode(e: OtpEntry, now = Date.now()): Promise<strin
   view.setUint32(0, Math.floor(counter / 2 ** 32));
   view.setUint32(4, counter >>> 0);
 
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new Uint8Array(e.secret),
-    { name: 'HMAC', hash: SUBTLE_HASH[e.algorithm] },
-    false,
-    ['sign'],
-  );
+  const key = await hmacKey(e.secret, SUBTLE_HASH[e.algorithm]);
   const sig = new Uint8Array(await crypto.subtle.sign('HMAC', key, msg));
   const off = sig[sig.length - 1] & 0x0f;
   const bin =

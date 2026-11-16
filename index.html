@@ -24,17 +24,18 @@
         <div class="cards">
           <article class="card" id="source-ga" data-source="ga">
             <h3>Google Authenticator</h3>
-            <p class="hint">
-              In the app: <em>Transfer accounts → Export accounts</em>. Screenshot every QR code it shows
-              (there can be several), then drop the screenshots here — or scan them with your webcam.
-            </p>
+            <ol class="steps hint">
+              <li>In the app: open the menu → <em>Transfer accounts → Export accounts</em>, select all, <em>Next</em>.</li>
+              <li>Easiest: click <em>Scan with webcam</em> and show it each QR code in turn.</li>
+              <li>Or screenshot every QR code (there may be several), copy them to this computer and drop them here. Delete the screenshots afterwards — they contain your secrets.</li>
+            </ol>
             <div class="dropzone" tabindex="-1">
               <label class="button">
                 Choose QR images…
-                <input type="file" accept="image/*" multiple class="visually-hidden" data-role="images" />
+                <input type="file" accept="image/*" multiple class="visually-hidden" data-role="files" />
               </label>
               <button type="button" data-role="webcam">Scan with webcam</button>
-              <span class="hint">or drop images here</span>
+              <span class="hint">or drop screenshots here</span>
             </div>
             <details>
               <summary>Paste <code>otpauth-migration://</code> links instead</summary>
@@ -46,14 +47,14 @@
 
           <article class="card" id="source-ext" data-source="ext">
             <h3>Chrome Authenticator extension</h3>
-            <p class="hint">
-              In the extension: <em>Settings → Backup → Download backup file</em> (plain text, one
-              <code>otpauth://</code> link per line). Single-account QR images also work.
-            </p>
+            <ol class="steps hint">
+              <li>In the extension: open the menu → <em>Backup → Download backup file</em> (the plain-text one).</li>
+              <li>Drop that <code>.txt</code> file here. Single-account QR images work too.</li>
+            </ol>
             <div class="dropzone" tabindex="-1">
               <label class="button">
                 Choose backup file or QR images…
-                <input type="file" accept=".txt,text/plain,image/*" multiple class="visually-hidden" data-role="images" />
+                <input type="file" accept=".txt,text/plain,image/*" multiple class="visually-hidden" data-role="files" />
               </label>
               <button type="button" data-role="webcam">Scan with webcam</button>
               <span class="hint">or drop files here</span>

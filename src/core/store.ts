@@ -1,5 +1,6 @@
 import { toHex } from './encoding';
 import { gaIncompatibility } from './migration';
+import { accountLabel } from './otpauth';
 import type { Algorithm, OtpEntry, SourceKind } from './types';
 
 /**
@@ -11,6 +12,8 @@ export interface SourceItem {
   source: SourceKind;
   label: string;
   entries: OtpEntry[];
+  /** Set for Google Authenticator transfer QRs, which come in numbered batches. */
+  batch?: { id: number; index: number; size: number };
 }
 
 /** User edits, keyed by account key. */
@@ -26,11 +29,16 @@ export interface Override {
 export interface Account {
   /** Identity: hex of the secret bytes. Same secret ⇒ same account, whatever the labels say. */
   key: string;
-  /** Current values (first-seen values with user overrides applied). */
+  /** Current values: `original` with the user's edits applied. */
   entry: OtpEntry;
-  /** First-seen values, before edits. */
+  /** Values as loaded, before edits (the extension's copy if it has one, since it carries the period). */
   original: OtpEntry;
   occurrences: Record<SourceKind, OtpEntry[]>;
+  /**
+   * How many copies the app itself holds: the most found within any single export.
+   * (Loading two GA exports, or two backup files, doesn't make an account a duplicate.)
+   */
+  copies: Record<SourceKind, number>;
   edited: boolean;
   excluded: boolean;
   warnings: string[];
@@ -46,10 +54,6 @@ export const SCOPE_LABEL: Record<Scope, string> = {
 
 export function accountKey(e: OtpEntry): string {
   return toHex(e.secret);
-}
-
-function labelOf(e: OtpEntry): string {
-  return e.issuer ? `${e.issuer}: ${e.name}` : e.name;
 }
 
 function settingsOf(e: OtpEntry): string {
@@ -93,6 +97,25 @@ export class Store {
     return this.getItems(source).some((i) => i.entries.length > 0);
   }
 
+  /**
+   * Transfer QRs that belong to a Google Authenticator export but haven't been loaded
+   * (1-based numbers, e.g. ["2 of 3"]). While any are missing, "missing from GA" is unreliable.
+   */
+  missingGaBatches(): string[] {
+    const exports = new Map<number, { size: number; have: Set<number> }>();
+    for (const { batch } of this.items.values()) {
+      if (!batch) continue;
+      const e = exports.get(batch.id) ?? { size: batch.size, have: new Set<number>() };
+      e.have.add(batch.index);
+      exports.set(batch.id, e);
+    }
+    const missing: string[] = [];
+    for (const e of exports.values()) {
+      for (let i = 0; i < e.size; i++) if (!e.have.has(i)) missing.push(`${i + 1} of ${e.size}`);
+    }
+    return missing;
+  }
+
   setOverride(key: string, patch: Override): void {
     const next = { ...this.overrides.get(key), ...patch };
     this.overrides.set(key, next);
@@ -107,7 +130,9 @@ export class Store {
 
   accounts(): Account[] {
     const byKey = new Map<string, Account>();
+    const perExport = new Map<string, number>();
     for (const item of this.items.values()) {
+      const exportId = item.batch ? `${item.source}:batch:${item.batch.id}` : item.id;
       for (const e of item.entries) {
         const key = accountKey(e);
         let acc = byKey.get(key);
@@ -117,6 +142,7 @@ export class Store {
             entry: e,
             original: e,
             occurrences: { ga: [], ext: [] },
+            copies: { ga: 0, ext: 0 },
             edited: false,
             excluded: false,
             warnings: [],
@@ -124,6 +150,10 @@ export class Store {
           byKey.set(key, acc);
         }
         acc.occurrences[item.source].push(e);
+        const countKey = `${key}|${exportId}`;
+        const n = (perExport.get(countKey) ?? 0) + 1;
+        perExport.set(countKey, n);
+        acc.copies[item.source] = Math.max(acc.copies[item.source], n);
       }
     }
 
@@ -142,16 +172,18 @@ export class Store {
     }
 
     // Same label, different secret: probably a stale or re-enrolled account.
+    // Unticked accounts don't count, so unticking the stale one clears the warning.
     const byLabel = new Map<string, Account[]>();
     for (const acc of accounts) {
-      const l = labelOf(acc.entry).toLowerCase();
+      if (acc.excluded) continue;
+      const l = accountLabel(acc.entry).toLowerCase();
       byLabel.set(l, [...(byLabel.get(l) ?? []), acc]);
     }
     for (const group of byLabel.values()) {
       if (group.length > 1) {
         for (const acc of group) {
           acc.warnings.push(
-            `Same issuer/account as ${group.length - 1} other entr${group.length > 2 ? 'ies' : 'y'} with a different secret — one is probably stale. Compare live codes with the real site/app.`,
+            `Same name as ${group.length - 1} other entr${group.length > 2 ? 'ies' : 'y'} with a different secret — probably one is outdated. Check which code the site accepts and untick the other.`,
           );
         }
       }
@@ -167,19 +199,19 @@ function stripUndefined<T extends object>(o: T): Partial<T> {
 function computeWarnings(acc: Account): string[] {
   const w: string[] = [];
   for (const source of ['ga', 'ext'] as const) {
-    const n = acc.occurrences[source].length;
-    if (n > 1) w.push(`Appears ${n}× in the ${source === 'ga' ? 'Google Authenticator' : 'Chrome extension'} data (duplicate).`);
+    const n = acc.copies[source];
+    if (n > 1) w.push(`${n} copies in ${source === 'ga' ? 'Google Authenticator' : 'the extension'} — delete the extra one there.`);
   }
   const all = [...acc.occurrences.ga, ...acc.occurrences.ext];
-  const labels = new Set(all.map((e) => labelOf(e)));
-  if (labels.size > 1) w.push(`Labelled differently across sources: ${[...labels].map((l) => `“${l}”`).join(', ')}.`);
+  const labels = new Set(all.map(accountLabel));
+  if (labels.size > 1) w.push(`Named differently in each app: ${[...labels].map((l) => `“${l}”`).join(' / ')}.`);
   // GA can't carry a period, so only compare settings it does carry.
   const settings = new Set(all.map((e) => `${e.type} ${e.algorithm} ${e.digits}`));
-  if (settings.size > 1) w.push(`Settings differ across sources: ${[...new Set(all.map(settingsOf))].join(' vs ')}.`);
+  if (settings.size > 1) w.push(`Settings differ between apps: ${[...new Set(all.map(settingsOf))].join(' vs ')}.`);
   const ga = gaIncompatibility(acc.entry);
-  if (ga) w.push(`Can’t be transferred to Google Authenticator: ${ga}.`);
+  if (ga) w.push(`Can’t go into Google Authenticator: ${ga}.`);
   if (acc.entry.algorithm !== 'SHA1')
-    w.push(`Uses ${acc.entry.algorithm}; some apps (notably Google Authenticator) may silently use SHA1 instead.`);
+    w.push(`Uses ${acc.entry.algorithm} — Google Authenticator may ignore this and produce wrong codes.`);
   return w;
 }
 

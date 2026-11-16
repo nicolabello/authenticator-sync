@@ -25,7 +25,6 @@ const ALG_TO_PB: Record<Algorithm, number> = { SHA1: 1, SHA256: 2, SHA512: 3, MD
 
 export interface MigrationBatch {
   entries: OtpEntry[];
-  version: number;
   batchSize: number;
   batchIndex: number;
   batchId: number;
@@ -53,6 +52,7 @@ function parseOtpParameters(buf: Uint8Array): OtpEntry {
       default: r.skip(wire);
     }
   }
+  if (secret.length === 0) throw new Error('Transfer QR contains an account without a secret');
   // Google Authenticator often stores the name as "Issuer:account".
   const split = splitLabel(name);
   if (split.prefix && (!issuer || split.prefix.toLowerCase() === issuer.toLowerCase())) {
@@ -64,12 +64,11 @@ function parseOtpParameters(buf: Uint8Array): OtpEntry {
 
 export function decodeMigrationPayload(buf: Uint8Array): MigrationBatch {
   const r = new ProtoReader(buf);
-  const batch: MigrationBatch = { entries: [], version: 0, batchSize: 1, batchIndex: 0, batchId: 0 };
+  const batch: MigrationBatch = { entries: [], batchSize: 1, batchIndex: 0, batchId: 0 };
   while (!r.eof()) {
     const { field, wire } = r.tag();
     switch (field) {
       case 1: batch.entries.push(parseOtpParameters(r.bytes())); break;
-      case 2: batch.version = r.int(); break;
       case 3: batch.batchSize = r.int(); break;
       case 4: batch.batchIndex = r.int(); break;
       case 5: batch.batchId = r.int(); break;
@@ -104,7 +103,7 @@ function encodeOtpParameters(e: OtpEntry): ProtoWriter {
     .int(7, e.type === 'hotp' ? e.counter : 0);
 }
 
-export function encodeMigrationPayload(batch: Omit<MigrationBatch, 'version'>): Uint8Array {
+export function encodeMigrationPayload(batch: MigrationBatch): Uint8Array {
   const w = new ProtoWriter();
   for (const e of batch.entries) w.message(1, encodeOtpParameters(e));
   return w.int(2, 1).int(3, batch.batchSize).int(4, batch.batchIndex).int(5, batch.batchId).finish();

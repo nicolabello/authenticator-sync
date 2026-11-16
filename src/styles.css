@@ -85,6 +85,15 @@ h3 {
   font-size: 1.05rem;
 }
 
+.steps {
+  margin: 0;
+  padding-left: 20px;
+}
+
+.steps li + li {
+  margin-top: 2px;
+}
+
 .lede,
 .hint {
   color: var(--muted);
@@ -306,26 +315,50 @@ tr.has-warnings td:first-child {
 
 .cell-input {
   width: 100%;
-  min-width: 10ch;
+  min-width: 14ch;
+}
+
+td:nth-child(3) .cell-input {
+  min-width: 24ch;
+}
+
+th:first-child,
+td:first-child {
+  width: 1%;
 }
 
 td.center {
   text-align: center;
 }
 
-td.code span {
-  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
-  font-size: 1.05rem;
-  font-variant-numeric: tabular-nums;
+td.code {
   white-space: nowrap;
 }
 
-td.secret {
-  white-space: nowrap;
+.code-value {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 1.1rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ttl {
+  margin-left: 6px;
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-variant-numeric: tabular-nums;
+}
+
+.ttl.soon {
+  color: var(--warn);
 }
 
 td.notes {
-  min-width: 260px;
+  min-width: 240px;
+}
+
+td.notes .hint {
+  display: block;
+  font-size: 0.8rem;
 }
 
 .warnings {
@@ -335,46 +368,71 @@ td.notes {
   font-size: 0.85rem;
 }
 
-.badge {
+.pills {
+  white-space: nowrap;
+}
+
+.pill {
   display: inline-block;
-  min-width: 2.2em;
-  padding: 1px 6px;
+  margin: 0 4px 2px 0;
+  padding: 1px 8px;
+  border: 1px solid transparent;
   border-radius: 999px;
   font-size: 0.8rem;
   font-weight: 600;
-  text-align: center;
 }
 
-.badge.present {
+.pill.present {
   color: var(--ok);
   background: color-mix(in srgb, var(--ok) 15%, transparent);
 }
 
-.badge.dup {
+.pill.absent {
+  color: var(--muted);
+  border: 1px dashed var(--border);
+  font-weight: 400;
+  text-decoration: line-through;
+}
+
+.pill.dup {
   color: var(--warn);
   background: var(--warn-bg);
 }
 
-.badge.missing {
-  color: var(--muted);
-}
-
-.badge.edited {
+.pill.edited {
   color: var(--accent);
   background: color-mix(in srgb, var(--accent) 15%, transparent);
 }
 
 details summary {
   cursor: pointer;
-  white-space: nowrap;
 }
 
-.settings {
+.details-row td {
+  background: color-mix(in srgb, var(--accent) 5%, var(--surface));
+}
+
+.details {
   display: flex;
-  flex-direction: column;
-  gap: 6px;
-  padding-top: 6px;
-  min-width: 240px;
+  flex-wrap: wrap;
+  gap: 16px 40px;
+  padding: 4px 4px 8px;
+}
+
+.details h4 {
+  margin: 0 0 6px;
+  font-size: 0.85rem;
+}
+
+.details .hint {
+  margin: 0 0 6px;
+}
+
+code.secret {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 0.95rem;
+  letter-spacing: 0.04em;
 }
 
 .export-controls {
