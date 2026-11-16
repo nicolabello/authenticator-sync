@@ -37,9 +37,14 @@ npm run build && npm run preview
 ## Develop
 
 ```sh
-npm test           # parsers, protobuf round-trip, TOTP RFC vectors, merge logic
+npm test               # parsers, protobuf round-trip, TOTP RFC vectors, merge logic
+npm run test:coverage  # line/branch coverage of src/core
+npm run test:mutation  # StrykerJS mutation testing of src/core (HTML report in reports/mutation/)
 npm run typecheck
 ```
+
+- Tests live next to each module in `src/core/` (`*.test.ts`), with shared data in `fixtures.ts`.
+- Mutation testing fails below a 95% score. The dozen surviving mutants are equivalent: no test can tell them apart from the original, e.g. `toLowerCase` vs `toUpperCase` in a case-insensitive comparison. When a new mutant survives, add a test, unless it's equivalent too.
 
 - `src/core/` holds the format logic, with no DOM dependencies:
   - `otpauth.ts`, `migration.ts` (Google Authenticator protobuf), `store.ts` (merge and dedupe), `totp.ts`, `ingest.ts`

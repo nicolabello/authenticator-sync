@@ -41,7 +41,14 @@ export function parseOtpauthUri(uri: string): OtpEntry {
   const m = /^otpauth:\/\/(totp|hotp)\/([^?]*)(?:\?(.*))?$/i.exec(uri.trim());
   if (!m) throw new Error('Not an otpauth:// URI');
   const type = m[1].toLowerCase() as OtpType;
-  const { prefix, name } = splitLabel(safeDecode(m[2]));
+  // The issuer/name separator may be a literal or an encoded colon. Prefer a literal one, so an
+  // encoded colon inside the issuer (as toOtpauthUri writes it) stays part of the issuer.
+  const rawLabel = m[2];
+  const sep = rawLabel.indexOf(':');
+  const { prefix, name } =
+    sep < 0
+      ? splitLabel(safeDecode(rawLabel))
+      : { prefix: safeDecode(rawLabel.slice(0, sep)).trim(), name: safeDecode(rawLabel.slice(sep + 1)).trim() };
   const params = parseQuery(m[3] ?? '');
   // authenticator.cc marks Steam Guard accounts this way; their codes aren't standard TOTP.
   const encoder = params.get('encoder');

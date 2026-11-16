@@ -3,3 +3,6 @@ dist/
 .idea/
 .DS_Store
 *.local
+reports/
+.stryker-tmp/
+coverage/
