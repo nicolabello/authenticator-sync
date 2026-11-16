@@ -31,5 +31,9 @@ export default defineConfig({
   ],
   test: {
     include: ['src/**/*.test.ts'],
+    coverage: {
+      include: ['src/core/**/*.ts'],
+      exclude: ['src/core/**/*.test.ts', 'src/core/fixtures.ts', 'src/core/types.ts'],
+    },
   },
 });
